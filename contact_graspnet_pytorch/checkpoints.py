@@ -62,7 +62,12 @@ class CheckpointIO(object):
         if os.path.exists(filename):
             print(filename)
             print('=> Loading checkpoint from local file...')
-            state_dict = torch.load(filename)
+            # PyTorch >= 2.6: checkpoint contains numpy scalars; allowlist them
+            # instead of disabling weights_only entirely.
+            import numpy as _np
+            with torch.serialization.safe_globals(
+                    [_np.core.multiarray.scalar, _np.dtype, _np.dtypes.Float64DType]):
+                state_dict = torch.load(filename, weights_only=True)
             scalars = self.parse_state_dict(state_dict)
             return scalars
         else:

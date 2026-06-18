@@ -186,28 +186,26 @@ class GraspEstimator:
         if len(pc.shape) == 2:
             pc_batch = pc[np.newaxis,:,:]
 
-        if forward_passes > 1:
-            pc_batch = np.tile(pc_batch, (forward_passes,1,1))
-
         pc_batch = torch.from_numpy(pc_batch).type(torch.float32).to(self.device)
-            
-        # feed_dict = {self.placeholders['pointclouds_pl']: pc_batch,
-        #             self.placeholders['is_training_pl']: False}
 
-        # Run model inference
-        # pred_grasps_cam, pred_scores, pred_points, offset_pred = sess.run(self.inference_ops, feed_dict=feed_dict)
-        pred = self.model(pc_batch)
-        pred_grasps_cam = pred['pred_grasps_cam']
-        pred_scores = pred['pred_scores']
-        pred_points = pred['pred_points']
-        offset_pred = pred['offset_pred']
+        # Run forward_passes sequentially (instead of stacking them into one big
+        # batch) so peak GPU memory stays ~constant regardless of forward_passes.
+        # Important when sharing the GPU with other processes.
+        pred_grasps_cam_list, pred_scores_list, pred_points_list, offset_pred_list = [], [], [], []
+        for _ in range(forward_passes):
+            pred = self.model(pc_batch)
+            pred_grasps_cam_list.append(pred['pred_grasps_cam'].detach())
+            pred_scores_list.append(pred['pred_scores'].detach())
+            pred_points_list.append(pred['pred_points'].detach())
+            offset_pred_list.append(pred['offset_pred'].detach())
+            del pred
+            if self.device.type == 'cuda':
+                torch.cuda.empty_cache()
 
-
-
-        pred_grasps_cam = pred_grasps_cam.detach().cpu().numpy()
-        pred_scores = pred_scores.detach().cpu().numpy()
-        pred_points = pred_points.detach().cpu().numpy()
-        offset_pred = offset_pred.detach().cpu().numpy()
+        pred_grasps_cam = torch.cat(pred_grasps_cam_list, dim=0).cpu().numpy()
+        pred_scores = torch.cat(pred_scores_list, dim=0).cpu().numpy()
+        pred_points = torch.cat(pred_points_list, dim=0).cpu().numpy()
+        offset_pred = torch.cat(offset_pred_list, dim=0).cpu().numpy()
 
         pred_grasps_cam = pred_grasps_cam.reshape(-1, *pred_grasps_cam.shape[-2:])
         pred_points = pred_points.reshape(-1, pred_points.shape[-1])
