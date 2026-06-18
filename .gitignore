@@ -12,3 +12,6 @@ acronym/*
 
 *.egg-info
 
+# Per-run RealSense capture (regenerate via tools/realsense_capture.py)
+test_data/realsense_scene.npy
+
