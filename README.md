@@ -134,3 +134,52 @@ If you find this work useful, please consider citing the author's original work 
   year={2021}
 }
 ```
+
+0. Setup (one-time per terminal)
+
+cd /home/vivek/docker_panda_ws/contact_graspnet_pytorch
+source /home/vivek/miniconda3/etc/profile.d/conda.sh
+conda activate contact_graspnet
+Make sure realsense-viewer or any other app holding the camera is closed first.
+
+1. Capture a scene from the D455F
+
+python tools/realsense_capture.py --out test_data/realsense_scene.npy --segment
+Prints the captured rgb/depth shapes, the fitted K, and the table-plane equation + number of object segments found.
+Drop --segment if you just want raw depth+rgb+K with no segmentation (full-scene grasps, no --local_regions).
+2. (Optional) Sanity-check the capture visually
+
+python -c "
+import numpy as np, cv2
+d = np.load('test_data/realsense_scene.npy', allow_pickle=True).item()
+cv2.imwrite('/tmp/rgb.png', d['rgb'])
+cv2.imwrite('/tmp/depth.png', (d['depth']/d['depth'].max()*255).astype('uint8'))
+cv2.imwrite('/tmp/seg.png', (d['seg']*60).astype('uint8'))
+print('wrote /tmp/rgb.png /tmp/depth.png /tmp/seg.png')
+"
+Open those PNGs to confirm the table/objects look right and segments are reasonable before running the model.
+
+3. Run grasp inference
+
+python test_inference_headless.py --np_path=test_data/realsense_scene.npy
+Prints per-segment grasp counts/scores and the best grasp pose (camera frame, 4×4).
+Saves results/predictions_realsense_scene.npz.
+4. Visualize the predicted grasps (open3d window)
+
+python -c "
+from contact_graspnet_pytorch.visualize_saved_scene import *
+" 2>/dev/null  # (script runs on import via argparse defaults — see direct call below)
+
+python contact_graspnet_pytorch/visualize_saved_scene.py --results_path=results/predictions_realsense_scene.npz
+Just use the second line — opens an open3d 3D viewer with the point cloud + grasp gripper poses overlaid. Close the window to exit.
+
+One-liner for repeat testing
+
+python tools/realsense_capture.py --out test_data/realsense_scene.npy --segment && \
+python test_inference_headless.py --np_path=test_data/realsense_scene.npy && \
+python contact_graspnet_pytorch/visualize_saved_scene.py --results_path=results/predictions_realsense_scene.npz
+Tuning segmentation
+If object count looks wrong in step 1/2, edit tools/realsense_capture.py:
+
+table_thresh (default 0.012 m) — distance from plane to count as "above table". Increase if the table itself is being picked up as foreground (noise); decrease if thin objects are missed.
+min_area (default 400 px) — minimum blob size to count as an object segment. Lower it if small objects are being dropped.
